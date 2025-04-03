@@ -1,0 +1,27 @@
+# Do NOT update manually; changes here will be overwritten by Copier
+_commit: v1.30
+_src_path: gh:OCA/oca-addons-repo-template
+additional_ruff_rules: []
+ci: GitHub
+convert_readme_fragments_to_markdown: true
+enable_checklog_odoo: true
+generate_requirements_txt: true
+github_check_license: true
+github_ci_extra_env: {}
+github_enable_codecov: true
+github_enable_makepot: true
+github_enable_stale_action: true
+github_enforce_dev_status_compatibility: true
+include_wkhtmltopdf: true
+odoo_test_flavor: OCB
+odoo_version: 17.0
+org_name: Odoo Community Association (OCA)
+org_slug: AlvaroNegrin21
+rebel_module_groups: []
+repo_description: Development workspace for custom Odoo 17.0 modules
+repo_name: Odoo Custom Development Workspace
+repo_slug: custom-workspace
+repo_website: https://github.com/AlvaroNegrin21/custom-workspace
+use_pyproject_toml: true
+use_ruff: true
+
