@@ -1,0 +1,33 @@
+<!-- <odoo>
+    <record model="ir.cron" id="ir_cron_leisure_channel_sync">
+        <field name="name">Leisure Channel Sync</field>
+        <field name="model_id" ref="model_leisure_channel_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.sync()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="numbercall">-1</field>
+        <field name="doall">False</field>
+        <field name="update_date" />
+    </record>
+</odoo> -->
+<odoo>
+    <data noupdate="1"> <!-- noupdate="1" prevents overwriting user changes on module update -->
+
+        <!-- Scheduled Action to sync all configurations -->
+        <record id="ir_cron_sync_leisure_channel_all" model="ir.cron">
+            <field name="name">Leisure Channel: Sync All Configurations</field>
+            <field name="model_id" ref="model_leisure_channel_sync"/> <!-- Ensure your module depends on 'product' or 'stock' if not already -->
+            <field name="state">code</field>
+            <field name="code">model._sync_database()</field>
+            <field name="user_id" ref="base.user_root"/> <!-- Run as admin -->
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field> <!-- Run daily -->
+            <field name="numbercall">-1</field> <!-- Run indefinitely -->
+            <field name="doall">False</field> <!-- Process missed runs one by one -->
+            <field name="active" eval="False"/> <!-- Start as inactive, let user enable it -->
+            <!-- REMOVED: <field name="nextcall" eval="(DateTime.now() + timedelta(days=1)).strftime('%Y-%m-%d 03:00:00')"/> -->
+        </record>
+
+    </data>
+</odoo>

@@ -1,0 +1,150 @@
+<!-- <odoo>
+
+    <record model="ir.ui.view" id="view_leisure_channel_sync_tree">
+        <field name="name">leisure.channel.sync.tree</field>
+        <field name="model">leisure.channel.sync</field>
+        <field name="arch" type="xml">
+            <tree string="Leisure Channel Sync">
+                <field name="name"/>
+                <field name="state"/>
+                <field name="channel_id"/>
+                <field name="last_sync_date"/>
+                <field name="sync_type"/>
+                <field name="sync_status"/>
+            </tree>
+        </field>
+    </record>
+
+    <record model="ir.ui.view" id="view_leisure_channel_sync_form">
+        <field name="name">leisure.channel.sync.form</field>
+        <field name="model">leisure.channel.sync</field>
+        <field name="arch" type="xml">
+            <form string="Leisure Channel Sync">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="state"/>
+                            <field name="channel_id"/>
+                            <field name="last_sync_date"/>
+                        </group>
+                        <group>
+                            <field name="sync_type"/>
+                            <field name="sync_status"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record model="windwow.action" id="action_leisure_channel_sync">
+        <field name="name">Leisure Channel Sync</field>
+        <field name="res_model">leisure.channel.sync</field>
+        <field name="view_mode">tree,form</field>
+        <field name="view_id" ref="view_leisure_channel_sync_tree"/>
+        <field name="context">{}</field>
+    </record>
+
+    <menuitem
+        id="menu_leisure_channel_sync"
+        name="Leisure Channel Sync"
+        parent="leisure_channel_connector.menu_leisure_channel_connector"
+        action="action_leisure_channel_sync"
+    ></menuitem>
+
+    <menuitem
+        id="menu_leisure_channel_sync_config"
+        name="Settings"
+        parent="menu_leisure_channel_sync">
+    </menuitem>
+
+</odoo> -->
+
+<odoo>
+    <data>
+
+        <!-- Form View -->
+        <record id="leisure_channel_sync_view_form" model="ir.ui.view">
+            <field name="name">leisure.channel.sync.form</field>
+            <field name="model">leisure.channel.sync</field>
+            <field name="arch" type="xml">
+                <form string="Leisure Channel Sync Configuration">
+                    <header>
+                        <button name="action_fetch_data" type="object" string="Sync Now" class="oe_highlight"
+                                confirm="This will fetch data from the specified location and update/create products. Are you sure?"/>
+                    </header>
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="location" required="1"/>
+                                <field name="available_state"/>
+                            </group>
+                            <group>
+                                <field name="second_hand_suffix"/>
+                                <field name="second_hand_default_code"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Help" name="help_info">
+                                <group>
+                                    <p>
+                                        <b>Location:</b> The full URL to the CSV file provided by the Leisure Channel.
+                                    </p>
+                                    <p>
+                                        <b>Available State:</b> The exact text (case-insensitive) used in the 'estado' column of the CSV to indicate a product is available for sale.
+                                    </p>
+                                    <p>
+                                        <b>Second Hand Suffix:</b> This suffix will be appended to the barcode (EAN13) of the original product to create the barcode for the second-hand version.
+                                    </p>
+                                    <p>
+                                        <b>Second Hand Default Code:</b> This value will be set as the 'Internal Reference' for the second-hand product variants.
+                                    </p>
+                                    <p>
+                                        Clicking <b>Sync Now</b> will process only this specific configuration. A scheduled action (if activated) will process all configurations periodically.
+                                    </p>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Tree/List View -->
+        <record id="leisure_channel_sync_view_tree" model="ir.ui.view">
+            <field name="name">leisure.channel.sync.tree</field>
+            <field name="model">leisure.channel.sync</field>
+            <field name="arch" type="xml">
+                <tree string="Leisure Channel Sync Configurations">
+                    <field name="location"/>
+                    <field name="second_hand_suffix"/>
+                    <field name="available_state"/>
+                </tree>
+            </field>
+        </record>
+
+        <!-- Action Window -->
+        <record id="leisure_channel_sync_action" model="ir.actions.act_window">
+            <field name="name">Leisure Channel Sync Configurations</field>
+            <field name="res_model">leisure.channel.sync</field>
+            <field name="view_mode">tree,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    Create a new Leisure Channel Sync configuration.
+                </p><p>
+                    Specify the CSV location and synchronization parameters. You can trigger the sync manually or use the scheduled action.
+                </p>
+            </field>
+        </record>
+
+
+        <menuitem
+            id="menu_leisure_channel_sync_config"
+            name="Leisure Channel Sync"
+            action="leisure_channel_sync_action"
+            parent="stock.menu_stock_config_settings"
+            sequence="99"/>
+
+    </data>
+</odoo>
