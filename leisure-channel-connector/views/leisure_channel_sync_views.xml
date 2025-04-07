@@ -71,7 +71,7 @@
             <field name="arch" type="xml">
                 <form string="Leisure Channel Sync Configuration">
                     <header>
-                        <button name="action_fetch_data" type="object" string="Sync Now" class="oe_highlight"
+                        <button name="sync_database" type="object" string="Sync Now" class="oe_highlight"
                                 confirm="This will fetch data from the specified location and update/create products. Are you sure?"/>
                     </header>
                     <sheet>

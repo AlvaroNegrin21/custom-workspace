@@ -1,6 +1,6 @@
 from odoo import models, fields
 from odoo.exceptions import UserError
-
+from PIL import Image
 
 import csv
 import logging
@@ -12,13 +12,13 @@ import copy
 
 # --- Constantes ---
 CSV_DELIMITER = ';'
-REQUESTS_TIMEOUT = 120  # Segundos para la descarga del CSV
-IMAGE_TIMEOUT = 50      # Segundos para la descarga de imágenes
-BATCH_SIZE = 1000       # Reducido ligeramente, ajustar según memoria/rendimiento
-DEFAULT_PRODUCT_TYPE = 'product' # Storable product
+REQUESTS_TIMEOUT = 120
+IMAGE_TIMEOUT = 50
+BATCH_SIZE = 1000
+DEFAULT_PRODUCT_TYPE = 'product'
 STATE_AVAILABLE = 'disponible'
 SECOND_HAND_SUFFIX = 'OKA'
-SECOND_HAND_DEFAULT_CODE = ('Segunda Mano') # Usar _ para posible traducción
+SECOND_HAND_DEFAULT_CODE = ('Segunda Mano')
 
 _logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class LeisureChannelSync(models.Model):
         Fetch an image from the given URL and return its base64 encoded string.
         """
         self.ensure_one()
-        _logger.info('Fetching image from %s', url)
+        #_logger.info('Fetching image from %s', url)
 
         try:
             response = requests.get(url, stream=True, timeout=IMAGE_TIMEOUT)
@@ -108,7 +108,7 @@ class LeisureChannelSync(models.Model):
 
             image_data = response.content
             base64_image = base64.b64encode(image_data).decode('utf-8')
-            _logger.info('Image fetched successfully from %s', url)
+            #_logger.info('Image fetched successfully from %s', url)
             return base64_image
         except requests.Timeout:
             _logger.error('Timeout while fetching image from %s', url)
@@ -122,65 +122,88 @@ class LeisureChannelSync(models.Model):
         finally:
             if 'response' in locals():
                 response.close()
-            _logger.info('Image file closed successfully')
+            #_logger.info('Image file closed successfully')
 
     def _parse_float(self, value):
         """
-        Parse a float value from a string, handling commas and dots.
+        Parse a float value from a string, handling thousands separators (,)
+        and decimal separators (.). Returns 0.0 if parsing fails.
         """
-        if not isinstance(value, str):
+        if not value or not isinstance(value, str):
             return 0.0
 
-        if isinstance(value, str):
-            value = value.replace(',', '.')
-            try:
-                return float(value)
-            except ValueError:
-                _logger.error('Invalid float value: %s', value)
-                raise UserError(f'Invalid float value: {value}')
-        return value
+        cleaned_value = value.strip()
+
+        cleaned_value = cleaned_value.replace(',', '')
+
+        try:
+            return float(cleaned_value)
+        except ValueError:
+            _logger.warning(
+                'Could not parse float value "%s" (cleaned: "%s"). Returning 0.0.',
+                value, cleaned_value
+            )
+            return 0.0
+        except Exception as e:
+            _logger.error(
+                'Unexpected error parsing float value "%s": %s. Returning 0.0.',
+                value, e
+            )
+            return 0.0
 
     def _process_row_data(self, row):
         """
         Process a single row of data from the CSV file.
         """
         self.ensure_one()
-        _logger.info('Processing row data: %s', row)
+        #_logger.info('Processing row data: %s', row)
 
         barcode = row.get('ean13', '').strip()
         if not barcode or not barcode.isdigit():
             _logger.warning(f"Fila ignorada: EAN13 inválido o ausente. Datos: {row}")
             return None, None
 
-        pvp = self._parse_float(row.get('pvp', '').strip())
+        pvp = row.get('pvp', '').strip()
 
-        pvd = self._parse_float(row.get('pvd', '').strip())
+        pvd = row.get('pvd', '').strip()
 
         weight = row.get('peso', '').strip()
 
-        sale_ok = row.get('estado', '').strip().lower() == STATE_AVAILABLE
+        sale_ok = row.get('estado', '').strip().lower() == self.available_state.lower()
 
         image_url = row.get('caratula', '').strip()
 
         base64_image = self._fetch_image_64(image_url) if image_url else False
 
+        validated_image_b64 = None # Start with None
+
+        if base64_image:
+            try:
+                img_data = base64.b64decode(base64_image)
+                img_file_like = io.BytesIO(img_data)
+                img = Image.open(img_file_like)
+                img.verify()
+                validated_image_b64 = base64_image
+            except (base64.binascii.Error, OSError, Image.UnidentifiedImageError, Exception) as img_err:
+                _logger.warning(f"Failed to decode/validate image from URL {image_url}. Skipping image for this product. Error: {img_err}")
+
         main_vals = {
-            'name': row.get('titulo', ('Sin Nombre')).strip(),
+            'name': row.get('titulo', 'Sin Nombre').strip(),
             'barcode': barcode,
-            'list_price': pvp,
-            'standard_price': pvd,
-            'weight': weight,
+            'list_price': self._parse_float(pvp),
+            'standard_price': self._parse_float(pvd),
+            'weight': self._parse_float(weight),
             'sale_ok': sale_ok,
             'detailed_type': DEFAULT_PRODUCT_TYPE,
-            **({'image_1920': base64_image} if base64_image else {}),
-            'company_id': self.env.company.id, # Asignar compañía actual
+            **({'image_1920': validated_image_b64} if validated_image_b64 else {}),
+            'company_id': self.env.company.id,
             'categ_id': self.env.ref('product.product_category_all').id,
         }
 
         second_hand_vals = copy.deepcopy(main_vals)
-        second_hand_vals['barcode'] += SECOND_HAND_SUFFIX
-        second_hand_vals['taxes_id'] = [(6, 0, [])] # Sin impuestos
-        second_hand_vals['default_code'] = SECOND_HAND_DEFAULT_CODE
+        second_hand_vals['barcode'] += self.second_hand_suffix
+        second_hand_vals['taxes_id'] = [(6, 0, [])]
+        second_hand_vals['default_code'] = self.second_hand_default_code
 
         return main_vals, second_hand_vals
 
@@ -207,9 +230,9 @@ class LeisureChannelSync(models.Model):
             # 2. Procesar filas y preparar datos
             all_barcodes = set()
             products_data = {}
-
             for i, row in enumerate(data):
                 try:
+                    row = dict(row)
                     main_vals, second_hand_vals = self._process_row_data(row)
 
                     if not main_vals:
@@ -281,7 +304,6 @@ class LeisureChannelSync(models.Model):
                     created_count += len(created_products)
                 except Exception as e:
                     _logger.error(f"Error creando lote de productos (inicia con barcode {batch[0].get('barcode') if batch else 'N/A'}): {e}")
-                    # Considerar registrar los barcodes que fallaron
             _logger.info(f"{created_count} productos creados.")
 
             _logger.info(f"Sincronización completada. Creados: {created_count}, Actualizados: {updated_count}, Ignorados/Errores: {skipped_count}")
@@ -302,7 +324,7 @@ class LeisureChannelSync(models.Model):
             _logger.exception("Error fatal durante la sincronización de Canalocio.")
             raise UserError(("Ocurrió un error inesperado durante la sincronización. Revise los logs para más detalles. Error: %s") % e)
 
-    def _sync_database(self):
+    def sync_database(self):
         """
         Sync the database with the leisure channel.
         """

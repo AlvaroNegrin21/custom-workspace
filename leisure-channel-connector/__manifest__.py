@@ -13,7 +13,7 @@
     'depends': [
         'base',
         'product',
-        'stock',   # Make sure this dependency is needed/correct
+        'stock',
         ],
     'data': [
         'security/ir.model.access.csv',
