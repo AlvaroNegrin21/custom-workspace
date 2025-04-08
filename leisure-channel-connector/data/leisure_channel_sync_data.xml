@@ -1,19 +1,19 @@
 <odoo>
-    <data noupdate="1"> <!-- noupdate="1" prevents overwriting user changes on module update -->
+    <data noupdate="1">
 
         <!-- Scheduled Action to sync all configurations -->
         <record id="ir_cron_sync_leisure_channel_all" model="ir.cron">
-            <field name="name">Leisure Channel: Sync All Configurations</field>
-            <field name="model_id" ref="model_leisure_channel_sync"/>
+            <field name="name">Leisure Channel: Queue Sync For All Configs</field>
+            <field name="model_id" ref="model_leisure_channel_sync"/> <!-- Make sure model_leisure_channel_sync is the XML ID of your model -->
             <field name="state">code</field>
-            <field name="code">model._sync_database()</field>
+            <field name="code">model.trigger_sync_for_all_configs()</field>
             <field name="user_id" ref="base.user_root"/> <!-- Run as admin -->
             <field name="interval_number">1</field>
             <field name="interval_type">days</field> <!-- Run daily -->
             <field name="numbercall">-1</field> <!-- Run indefinitely -->
             <field name="doall">False</field> <!-- Process missed runs one by one -->
             <field name="active" eval="False"/> <!-- Start as inactive, let user enable it -->
-            <field name="nextcall" eval="(DateTime.now() + timedelta(days=1)).strftime('%Y-%m-%d 03:00:00')"/>
+            <field name="nextcall" eval="(DateTime.now().replace(hour=3, minute=0, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
         </record>
 
     </data>

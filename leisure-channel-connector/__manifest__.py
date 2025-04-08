@@ -14,6 +14,8 @@
         'base',
         'product',
         'stock',
+        'mail',
+        'queue_job',
         ],
     'data': [
         'security/ir.model.access.csv',
