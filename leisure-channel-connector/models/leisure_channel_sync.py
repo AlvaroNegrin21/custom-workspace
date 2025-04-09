@@ -8,6 +8,7 @@ import requests
 import io
 import base64
 import copy
+import binascii
 
 CSV_DELIMITER = ";"
 REQUESTS_TIMEOUT = 120
@@ -24,7 +25,7 @@ _logger = logging.getLogger(__name__)
 class LeisureChannelSync(models.Model):
     _name = "leisure.channel.sync"
     _description = "Leisure Channel Sync Configuration"
-    _inherit = ['mail.thread', 'mail.activity.mixin'] # Add chatter
+    _inherit = ['mail.thread', 'mail.activity.mixin']
 
     name = fields.Char(
         string="Configuration Name", required=True, default="Default Configuration"
@@ -55,18 +56,22 @@ class LeisureChannelSync(models.Model):
         required=True,
         default=lambda self: self.env.company,
     )
-    # Add message_follower_ids, activity_ids, message_ids if inheriting mail.thread/activity.mixin
-    # message_follower_ids = fields.One2many('mail.followers', 'res_id', string='Followers')
-    # activity_ids = fields.One2many('mail.activity', 'res_id', string='Activities')
-    # message_ids = fields.One2many('mail.message', 'res_id', string='Messages')
 
     def _fetch_parse_csv(self, url):
         self.ensure_one()
         _logger.info("Fetching CSV from %s for config %s", url, self.name)
+        response = None
+        csv_data = None
         try:
             response = requests.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
             response.raise_for_status()
-            csv_data = io.StringIO(response.content.decode("ISO-8859-1"))
+            try:
+                content = response.content.decode("utf-8")
+            except UnicodeDecodeError:
+                _logger.warning("Config %s: CSV is not UTF-8, trying ISO-8859-1.", self.name)
+                content = response.content.decode("ISO-8859-1")
+
+            csv_data = io.StringIO(content)
             reader = csv.DictReader(csv_data, delimiter=CSV_DELIMITER)
 
             expected_headers = {
@@ -82,7 +87,7 @@ class LeisureChannelSync(models.Model):
             if not expected_headers.issubset(actual_headers):
                 missing_headers = expected_headers - actual_headers
                 _logger.error(
-                    "Config %s: Missing headers: %s", self.name, missing_headers
+                    "Config %s: Missing mandatory headers: %s", self.name, missing_headers
                 )
                 raise UserError(
                     f"CSV headers do not match expected format. Missing: {missing_headers}"
@@ -114,19 +119,29 @@ class LeisureChannelSync(models.Model):
             )
             raise UserError(f"Unexpected error during CSV processing: {e}")
         finally:
-            if "csv_data" in locals() and csv_data:
+            if csv_data:
                 csv_data.close()
-            if "response" in locals() and response:
+            if response:
                 response.close()
 
     def _fetch_image_64(self, url):
         self.ensure_one()
+        response = None
         try:
             response = requests.get(url, stream=True, timeout=IMAGE_TIMEOUT)
             response.raise_for_status()
             image_data = response.content
-            base64_image = base64.b64encode(image_data).decode("utf-8")
-            return base64_image
+            try:
+                with Image.open(io.BytesIO(image_data)) as img:
+                    img.verify()
+                base64_image = base64.b64encode(image_data).decode("utf-8")
+                return base64_image
+            except (OSError, Image.UnidentifiedImageError, Exception) as img_err:
+                _logger.warning(
+                    f"Config {self.name}: Content from URL {url} is not a valid image. Error: {img_err}"
+                )
+                return False
+
         except requests.Timeout:
             _logger.warning(
                 "Config %s: Timeout fetching image from %s", self.name, url
@@ -143,16 +158,17 @@ class LeisureChannelSync(models.Model):
             )
             return False
         finally:
-            if "response" in locals() and response:
+            if response:
                 response.close()
 
     def _parse_float(self, value):
         if not value or not isinstance(value, str):
             return 0.0
-        cleaned_value = value.strip().replace(",", "")
+        cleaned_value = value.strip().replace(".", "").replace(",", ".")
         try:
             return float(cleaned_value)
         except ValueError:
+            _logger.warning(f'Could not parse float from value: "{value}". Returning 0.0.')
             return 0.0
         except Exception as e:
             _logger.error(
@@ -169,43 +185,16 @@ class LeisureChannelSync(models.Model):
             not barcode or not barcode.isdigit() or len(barcode) > 13
         ):
             _logger.warning(
-                f"Config {self.name}: Row skipped - Invalid or missing EAN13. Data: {row}"
+                f"Config {self.name}: Row skipped - Invalid or missing EAN13 (non-digit or >13 chars). Data: {row}"
             )
             return None, None
 
-        # image_url = row.get("caratula", "").strip()
-        # base64_image = self._fetch_image_64(image_url) if image_url else False
-        # validated_image_b64 = None
-
-        # if base64_image:
-        #     try:
-        #         if len(base64_image) % 4 == 0 and all(
-        #             c
-        #             in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-        #             for c in base64_image
-        #         ):
-        #             img_data = base64.b64decode(base64_image, validate=True)
-        #             img_file_like = io.BytesIO(img_data)
-        #             with Image.open(img_file_like) as img:
-        #                 img.verify()
-        #             validated_image_b64 = base64_image
-        #         else:
-        #             _logger.warning(
-        #                 f"Config {self.name}: Invalid base64 characters or padding for URL {image_url}. Skipping image."
-        #             )
-        #     except (
-        #         base64.binascii.Error,
-        #         OSError,
-        #         Image.UnidentifiedImageError,
-        #         EOFError,
-        #         Exception,
-        #     ) as img_err:  # Added EOFError
-        #         _logger.warning(
-        #             f"Config {self.name}: Failed to decode/validate image from URL {image_url}. Barcode: {barcode}. Skipping image. Error: {img_err}"
-        #         )
-        #     finally:
-        #         if "img_file_like" in locals() and img_file_like:
-        #             img_file_like.close()
+        image_url = row.get("caratula", "").strip()
+        validated_image_b64 = None
+        if image_url:
+            base64_image = self._fetch_image_64(image_url)
+            if base64_image:
+                validated_image_b64 = base64_image
 
         main_vals = {
             "name": row.get("titulo", f"Producto {barcode}").strip(),
@@ -216,12 +205,28 @@ class LeisureChannelSync(models.Model):
             "sale_ok": row.get("estado", "").strip().lower()
             == self.available_state.lower(),
             "detailed_type": DEFAULT_PRODUCT_TYPE,
-            #**({"image_1920": validated_image_b64} if validated_image_b64 else {}),
             "company_id": self.company_id.id,
             "categ_id": self.env.ref("product.product_category_all").id,
         }
 
+        if validated_image_b64:
+            main_vals["image_1920"] = validated_image_b64
+
+        # --- Extract Tag Names ---
+        tag_names = []
+        for i in range(1, 7):
+            tag_column = f"tag_{i}"
+            tag_name = row.get(tag_column, "").strip()
+            if tag_name:
+                tag_names.append(tag_name)
+
+        main_vals["_temp_product_tag_names"] = tag_names
+
+
         second_hand_vals = copy.deepcopy(main_vals)
+
+        second_hand_vals.pop("_temp_product_tag_names", None)
+
         second_hand_barcode = barcode + self.second_hand_suffix
         second_hand_vals["barcode"] = second_hand_barcode
         second_hand_vals["taxes_id"] = [(6, 0, [])]
@@ -230,13 +235,16 @@ class LeisureChannelSync(models.Model):
 
         return main_vals, second_hand_vals
 
+
     @api.model
     def _perform_sync_for_config(self, config_id):
         """
         Background job logic: Fetches, parses, and processes data for a specific config ID.
         This method is intended to be called via `with_delay()`.
         """
-        config = self.env["leisure.channel.sync"].browse(config_id)
+        job_env = self.env(context=dict(self.env.context, active_test=False))
+
+        config = job_env["leisure.channel.sync"].browse(config_id)
         if not config.exists():
             _logger.error(
                 "Leisure Channel Sync job started for non-existent config ID: %s",
@@ -249,13 +257,16 @@ class LeisureChannelSync(models.Model):
             config.name,
             config_id,
         )
-        ProductTemplate = self.env["product.template"].with_context(active_test=False)
+        ProductTemplate = job_env["product.template"]
+        ProductTag = job_env["product.tag"]
+
         products_to_create = []
         products_to_update = {}
         updated_count = 0
         created_count = 0
         skipped_count = 0
         error_detail = None
+        processed_barcodes = set()
 
         try:
             data = config._fetch_parse_csv(config.location)
@@ -266,36 +277,47 @@ class LeisureChannelSync(models.Model):
                 )
                 return f"Sync Job for '{config.name}': No data found in CSV."
 
-            all_barcodes_in_csv = set()
-            products_data = {}
+            all_barcodes_in_csv_pre_process = set()
+            products_data_pre_process = {}
 
+            # --- Stage 1: Process rows and collect data ---
             for i, row in enumerate(data):
                 try:
+                    if not isinstance(row, dict):
+                        _logger.warning(f"Config {config.name}: Skipping row {i+1} as it's not a dictionary: {row}")
+                        skipped_count += 1
+                        continue
+
                     row_dict = dict(row)
-                    main_vals, second_hand_vals = config._process_row_data(row_dict)
+                    main_vals_raw, second_hand_vals_raw = config._process_row_data(row_dict)
 
-                    if not main_vals:
+                    if not main_vals_raw:
                         skipped_count += 1
                         continue
 
-                    if main_vals["barcode"] in all_barcodes_in_csv:
+                    main_barcode = main_vals_raw.get("barcode")
+                    second_barcode = second_hand_vals_raw.get("barcode")
+
+                    if main_barcode in all_barcodes_in_csv_pre_process:
                         _logger.warning(
-                            f"Config {config.name}: Duplicate barcode {main_vals['barcode']} found in CSV row {i+1}. Skipping subsequent occurrences."
+                            f"Config {config.name}: Duplicate barcode '{main_barcode}' found in CSV row {i+1}. Skipping this row's main product."
                         )
-                        skipped_count += 1
+                        skipped_count += 2
                         continue
-                    if second_hand_vals["barcode"] in all_barcodes_in_csv:
-                        _logger.warning(
-                            f"Config {config.name}: Duplicate second-hand barcode {second_hand_vals['barcode']} generated from row {i+1}. Skipping."
-                        )
-                        skipped_count += 1
-                        continue
+                    all_barcodes_in_csv_pre_process.add(main_barcode)
 
-                    all_barcodes_in_csv.add(main_vals["barcode"])
-                    all_barcodes_in_csv.add(second_hand_vals["barcode"])
-                    products_data[main_vals["barcode"]] = {
-                        "main": main_vals,
-                        "second": second_hand_vals,
+                    if second_barcode in all_barcodes_in_csv_pre_process:
+                        _logger.warning(
+                            f"Config {config.name}: Duplicate second-hand barcode '{second_barcode}' generated from CSV row {i+1}. Skipping this row's second-hand product."
+                        )
+                        all_barcodes_in_csv_pre_process.remove(main_barcode)
+                        skipped_count += 2
+                        continue
+                    all_barcodes_in_csv_pre_process.add(second_barcode)
+
+                    products_data_pre_process[main_barcode] = {
+                        "main": main_vals_raw,
+                        "second": second_hand_vals_raw,
                     }
 
                 except Exception as e:
@@ -305,43 +327,104 @@ class LeisureChannelSync(models.Model):
                     )
                     skipped_count += 1
 
-            if not products_data:
+            if not products_data_pre_process:
                 _logger.warning(
-                    "Config %s: No valid products processed from the CSV.", config.name
+                    "Config %s: No valid products processed from the CSV after initial checks.", config.name
                 )
                 return f"Sync Job for '{config.name}': No valid products processed from CSV."
 
+            # --- Stage 2: Find existing products ---
             _logger.info(
-                f"Config {config.name}: Searching for {len(all_barcodes_in_csv)} barcodes in Odoo..."
+                f"Config {config.name}: Searching for {len(all_barcodes_in_csv_pre_process)} unique barcodes in Odoo..."
             )
             existing_products = ProductTemplate.search_read(
                 [
-                    ("barcode", "in", list(all_barcodes_in_csv)),
+                    ("barcode", "in", list(all_barcodes_in_csv_pre_process)),
                     ("company_id", "=", config.company_id.id),
                 ],
                 ["barcode"],
             )
-            existing_barcodes = {p["barcode"]: p["id"] for p in existing_products}
+            existing_barcodes_map = {p["barcode"]: p["id"] for p in existing_products}
             _logger.info(
-                f"Config {config.name}: Found {len(existing_barcodes)} existing products matching barcodes for company {config.company_id.name}."
+                f"Config {config.name}: Found {len(existing_barcodes_map)} existing products matching barcodes for company {config.company_id.name}."
             )
 
-            for barcode, data_vals in products_data.items():
+            # --- Stage 3: Resolve Tags and Prepare Final Data ---
+            tag_cache = {}
+
+            for barcode, data_vals in products_data_pre_process.items():
                 main_vals = data_vals["main"]
                 second_vals = data_vals["second"]
 
-                main_product_id = existing_barcodes.get(main_vals["barcode"])
+                tag_names = main_vals.pop("_temp_product_tag_names", [])
+                tag_ids = []
+
+                if tag_names:
+                    for tag_name in tag_names:
+                        if not tag_name: continue
+
+                        if tag_name in tag_cache:
+                            tag_id = tag_cache[tag_name]
+                            if tag_id:
+                                tag_ids.append(tag_id)
+                        else:
+                            tag = ProductTag.search([('name', '=ilike', tag_name)], limit=1)
+                            if tag:
+                                tag_cache[tag_name] = tag.id
+                                tag_ids.append(tag.id)
+                            else:
+                                try:
+                                    new_tag = ProductTag.create({'name': tag_name})
+                                    tag_cache[tag_name] = new_tag.id
+                                    tag_ids.append(new_tag.id)
+                                    _logger.info(f"Config {config.name}: Created new tag '{tag_name}' (ID: {new_tag.id})")
+                                except Exception as e:
+                                    _logger.error(f"Config {config.name}: Failed to create tag '{tag_name}' for barcode {barcode}: {e}")
+                                    tag_cache[tag_name] = None
+
+                unique_tag_ids = list(set(tag_ids))
+                if unique_tag_ids:
+                    m2m_command = [(6, 0, unique_tag_ids)]
+                    main_vals["product_tag_ids"] = m2m_command
+                    second_vals["product_tag_ids"] = m2m_command
+                else:
+                    main_vals["product_tag_ids"] = [(6, 0, [])]
+                    second_vals["product_tag_ids"] = [(6, 0, [])]
+
+
+                main_product_id = existing_barcodes_map.get(main_vals["barcode"])
                 if main_product_id:
-                    products_to_update[main_product_id] = main_vals
-                else:
+                    if main_product_id not in products_to_update:
+                        products_to_update[main_product_id] = main_vals
+                        processed_barcodes.add(main_vals["barcode"])
+                    else:
+                        _logger.warning(f"Config {config.name}: Barcode {main_vals['barcode']} mapped to multiple updates, using first encountered.")
+                        skipped_count +=1
+                elif main_vals['barcode'] not in processed_barcodes:
                     products_to_create.append(main_vals)
-
-                second_product_id = existing_barcodes.get(second_vals["barcode"])
-                if second_product_id:
-                    products_to_update[second_product_id] = second_vals
+                    processed_barcodes.add(main_vals['barcode'])
                 else:
-                    products_to_create.append(second_vals)
+                    _logger.warning(f"Config {config.name}: Barcode {main_vals['barcode']} already queued for creation, skipping duplicate.")
+                    skipped_count +=1
 
+
+                second_product_id = existing_barcodes_map.get(second_vals["barcode"])
+                if second_product_id:
+                    if second_product_id not in products_to_update:
+                        products_to_update[second_product_id] = second_vals
+                        processed_barcodes.add(second_vals['barcode'])
+                    else:
+                        _logger.warning(f"Config {config.name}: Barcode {second_vals['barcode']} mapped to multiple updates, using first encountered.")
+                        skipped_count +=1
+                elif second_vals['barcode'] not in processed_barcodes:
+                    products_to_create.append(second_vals)
+                    processed_barcodes.add(second_vals['barcode'])
+                else:
+                    _logger.warning(f"Config {config.name}: Barcode {second_vals['barcode']} already queued for creation, skipping duplicate.")
+                    skipped_count +=1
+
+
+            # --- Stage 4: Perform DB Operations (Update/Create) ---
             _logger.info(
                 f"Config {config.name}: Updating {len(products_to_update)} products..."
             )
@@ -383,14 +466,12 @@ class LeisureChannelSync(models.Model):
         except UserError as ue:
             _logger.error(f"Config {config.name}: UserError during sync job: {ue}")
             error_detail = str(ue)
-            raise
 
         except Exception as e:
             _logger.exception(
                 f"Config {config.name}: Unhandled exception during sync job."
             )
             error_detail = f"Unexpected error: {e}"
-            raise
 
         finally:
             summary_msg = (
@@ -405,10 +486,11 @@ class LeisureChannelSync(models.Model):
 
 
             try:
-                if config.exists():
-                    config.message_post(body=summary_msg)
+                main_env_config = self.env["leisure.channel.sync"].browse(config_id)
+                if main_env_config.exists():
+                    main_env_config.message_post(body=summary_msg)
             except Exception as post_err:
-                _logger.error(f"Failed to post summary message to config {config_id}: {post_err}")
+                _logger.error(f"Failed to post summary message to config {config_id} chatter: {post_err}")
 
         return summary_msg
 
@@ -429,27 +511,35 @@ class LeisureChannelSync(models.Model):
             "Queued sync job for config '%s' (ID: %s) with Job UUID: %s",
             self.name,
             self.id,
-            job_uuid,
+            job_uuid.uuid if job_uuid else "Not_Queued",
         )
+
+        if not job_uuid:
+            message = f'Product synchronization job for "{self.name}" is already running or queued.'
+            msg_type = 'warning'
+        else:
+            message = f'Product synchronization job for "{self.name}" has been queued.'
+            msg_type = 'info'
+
 
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": ("Job Queued"),
-                "message": f'Product synchronization job for "{self.name}" has been queued.',
+                "title": ("Job Status"),
+                "message": message,
                 "sticky": False,
-                "type": "info",
+                "type": msg_type,
             },
         }
 
-    #@api.model
+    @api.model
     def trigger_sync_for_all_configs(self):
         """
         Method called by Cron or manually: Queues sync jobs for ALL active configurations.
         """
         all_configs = self.search(
-            [("location", "!=", False)]
+            [("location", "!=", False), ("location", "!=", "")]
         )
         _logger.info(
             "Cron/Manual Trigger: Preparing to queue sync jobs for %d Leisure Channel configurations.",
@@ -457,6 +547,9 @@ class LeisureChannelSync(models.Model):
         )
 
         queued_count = 0
+        already_running_count = 0
+        failed_to_queue_count = 0
+
         for config in all_configs:
             try:
                 job_uuid = config.with_delay(
@@ -466,29 +559,44 @@ class LeisureChannelSync(models.Model):
                     config.id
                 )
 
-                _logger.info(
-                    "Queued sync job via Cron/All for config '%s' (ID: %s) with Job UUID: %s",
-                    config.name,
-                    config.id,
-                    job_uuid,
-                )
-                queued_count += 1
+                if job_uuid:
+                    _logger.info(
+                        "Queued sync job via Cron/All for config '%s' (ID: %s) with Job UUID: %s",
+                        config.name,
+                        config.id,
+                        job_uuid.uuid,
+                    )
+                    queued_count += 1
+                else:
+                    _logger.warning(
+                        "Skipped queuing job for config '%s' (ID: %s) via Cron/All - already running/queued (identity_key match).",
+                        config.name,
+                        config.id,
+                    )
+                    already_running_count +=1
+
             except Exception as e:
                 _logger.error(
                     f"Failed to queue job for config '{config.name}' (ID: {config.id}): {e}",
                     exc_info=True,
                 )
+                failed_to_queue_count += 1
 
         _logger.info(
-            "Cron/Manual Trigger: Finished queuing sync jobs. Total queued: %d",
+            "Cron/Manual Trigger: Finished queuing sync jobs. Total Queued Now: %d, Already Running/Queued: %d, Failed to Queue: %d",
             queued_count,
+            already_running_count,
+            failed_to_queue_count
         )
 
+    # Simple test job
     @api.model
     def _simple_job(self, message):
         _logger.warning(f"SIMPLE QUEUE JOB EXECUTED: {message}")
         return f"Job done: {message}"
 
     def run_simple_job(self):
-        self.with_delay(description="Simple Test Job")._simple_job("Hello from queue!")
+        self.ensure_one()
+        self.with_delay(description="Simple Test Job")._simple_job(f"Hello from queue via config {self.name}!")
         _logger.info("Simple test job queued.")
+        return True

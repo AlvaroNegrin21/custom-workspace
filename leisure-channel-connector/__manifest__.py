@@ -16,6 +16,7 @@
         'stock',
         'mail',
         'queue_job',
+        'account'
         ],
     'data': [
         'security/ir.model.access.csv',
