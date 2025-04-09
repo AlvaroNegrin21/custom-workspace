@@ -1,0 +1,125 @@
+<odoo>
+    <data>
+
+        <!-- Form View -->
+        <record id="leisure_channel_sync_view_form" model="ir.ui.view">
+            <field name="name">leisure.channel.sync.form</field>
+            <field name="model">leisure.channel.sync</field>
+            <field name="arch" type="xml">
+                <form string="Leisure Channel Sync Configuration">
+                    <header>
+                        <!-- Button now calls action_trigger_sync_job -->
+                        <button name="action_trigger_sync_job"
+                                type="object"
+                                string="Queue Sync Job Now"
+                                class="oe_highlight"
+                                help="Queues a background job to fetch and process products from the CSV URL."
+                                confirm="This will queue a background job to fetch data from the specified location and update/create products. Are you sure?"/>
+                        <!-- Optional: Button to trigger sync for ALL configurations MANUALLY -->
+                        <button name="run_simple_job"
+                                type="object"
+                                string="Test"
+                                />
+                        <button name="trigger_sync_for_all_configs"
+                                string="Queue Sync for All Configs Now"
+                                type="object"
+                                help="Queues background jobs for all defined Leisure Channel configurations. Normally done by the scheduled task."
+                                groups="base.group_system"
+                                confirm="This will queue background jobs for ALL configurations. This is usually handled by the scheduled task. Are you sure you want to run it now?"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" placeholder="e.g., Main Leisure Feed"/>
+                            </h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="location" required="1"/>
+                                <field name="company_id" groups="base.group_multi_company"/>
+                                <field name="available_state"/>
+                            </group>
+                            <group>
+                                <field name="second_hand_suffix"/>
+                                <field name="second_hand_default_code"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Help" name="help_info">
+                                <group>
+                                    <p>
+                                        <b>Configuration Name:</b> A descriptive name for this sync setup (e.g., "Main Leisure Feed", "Spanish Supplier CSV").
+                                    </p>
+                                    <p>
+                                        <b>Location:</b> The full URL to the CSV file provided by the Leisure Channel.
+                                    </p>
+                                    <p groups="base.group_multi_company">
+                                        <b>Company:</b> The company these products belong to. The sync will only affect products within this company.
+                                    </p>
+                                    <p>
+                                        <b>Available State:</b> The exact text (case-insensitive) used in the 'estado' column of the CSV to indicate a product is available for sale.
+                                    </p>
+                                    <p>
+                                        <b>Second Hand Suffix:</b> This suffix will be appended to the barcode (EAN13) of the original product to create the barcode for the second-hand version.
+                                    </p>
+                                    <p>
+                                        <b>Second Hand Default Code:</b> This value will be set as the 'Internal Reference' for the second-hand product variants.
+                                    </p>
+                                    <p>
+                                        Clicking <b>Queue Sync Job Now</b> will schedule the synchronization process to run in the background for this specific configuration. You can monitor its progress under the <b>Queue Jobs</b> menu (usually under Settings -> Technical).
+                                    </p>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <div class="oe_chatter">
+                        <field name="message_follower_ids"/>
+                        <field name="activity_ids"/>
+                        <field name="message_ids"/>
+                    </div>
+                </form>
+            </field>
+        </record>
+
+                <!-- Tree/List View -->
+        <record id="leisure_channel_sync_view_tree" model="ir.ui.view">
+            <field name="name">leisure.channel.sync.tree</field>
+            <field name="model">leisure.channel.sync</field>
+            <field name="arch" type="xml">
+                <tree string="Leisure Channel Sync Configurations">
+                    <field name="name"/>
+                    <field name="location"/>
+                    <field name="company_id" groups="base.group_multi_company"/>
+                    <field name="second_hand_suffix"/>
+                    <field name="available_state"/>
+                    <button name="action_trigger_sync_job"
+                            string="Queue Sync"
+                            type="object"
+                            icon="fa-cogs"
+                            help="Queue background sync job"/>
+                </tree>
+            </field>
+        </record>
+
+        <record id="leisure_channel_sync_action" model="ir.actions.act_window">
+            <field name="name">Leisure Channel Sync Configurations</field>
+            <field name="res_model">leisure.channel.sync</field>
+            <field name="view_mode">tree,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    Create a new Leisure Channel Sync configuration.
+                </p><p>
+                    Specify the CSV location and synchronization parameters. You can trigger the sync manually to run in the background.
+                </p>
+            </field>
+        </record>
+
+        <menuitem
+            id="menu_leisure_channel_sync_config"
+            name="Leisure Channel Sync"
+            action="leisure_channel_sync_action"
+            parent="stock.menu_stock_config_settings"
+            sequence="99"/>
+
+    </data>
+</odoo>
