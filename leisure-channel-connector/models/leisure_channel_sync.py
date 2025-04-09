@@ -164,7 +164,7 @@ class LeisureChannelSync(models.Model):
     def _parse_float(self, value):
         if not value or not isinstance(value, str):
             return 0.0
-        cleaned_value = value.strip().replace(".", "").replace(",", ".")
+        cleaned_value = value.strip().replace(",", "")
         try:
             return float(cleaned_value)
         except ValueError:
