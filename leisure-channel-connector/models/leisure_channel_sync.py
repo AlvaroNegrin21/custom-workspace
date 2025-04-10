@@ -428,16 +428,33 @@ class LeisureChannelSync(models.Model):
             _logger.info(
                 f"Config {config.name}: Updating {len(products_to_update)} products..."
             )
-            for product_id, vals in products_to_update.items():
-                try:
-                    ProductTemplate.browse(product_id).write(vals)
-                    updated_count += 1
-                except Exception as e:
-                    _logger.error(
-                        f"Config {config.name}: Failed to update product ID {product_id} (barcode: {vals.get('barcode', 'N/A')}): {e}",
-                        exc_info=True,
-                    )
-                    skipped_count += 1
+
+            total_to_update = len(products_to_update)
+            for i in range(0, total_to_update, BATCH_SIZE):
+                batch = dict(list(products_to_update.items())[i : i + BATCH_SIZE])
+                batch_number = i // BATCH_SIZE + 1
+                total_batches = (total_to_update + BATCH_SIZE - 1) // BATCH_SIZE
+                _logger.info(
+                    f"Config {config.name}: Updating batch {batch_number}/{total_batches} (Size: {len(batch)})"
+                )
+
+                for product_id, values_to_update in batch.items():
+                    try:
+                        product = ProductTemplate.browse(product_id)
+                        if product.exists():
+                            product.write(values_to_update)
+                            updated_count += 1
+                        else:
+                            _logger.warning(f"Config {config.name}: Product ID {product_id} not found in batch {batch_number}. Skipping.")
+                            skipped_count += 1
+                    except Exception as e:
+                        barcode = values_to_update.get("barcode", "N/A")
+                        _logger.error(
+                            f"Config {config.name}: Error updating product ID {product_id} (barcode {barcode}) in batch {batch_number}: {e}",
+                            exc_info=True,
+                        )
+                        skipped_count += 1
+
             _logger.info(f"Config {config.name}: {updated_count} products updated.")
 
             _logger.info(
