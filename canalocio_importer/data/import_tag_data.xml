@@ -1,0 +1,5 @@
+<odoo>
+    <record id="second_hand" model="product.tag">
+        <field name="name">Second-hand</field>
+    </record>
+</odoo>

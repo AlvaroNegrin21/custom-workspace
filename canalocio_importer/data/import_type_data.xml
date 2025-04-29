@@ -1,0 +1,16 @@
+<odoo>
+
+    <record id="import_type_product_product" model="import.type">
+      <field name="name">Import Product</field>
+      <field name="key">product_product_canal</field>
+      <field name="options">
+  - model: product.product
+    options:
+      importer:
+        odoo_unique_key: barcode
+      mapper:
+        name: product.product.canal.mapper
+      </field>
+    </record>
+
+    </odoo>

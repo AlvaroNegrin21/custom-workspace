@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Copyright 2025 Binhex
+     License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl). -->
+<odoo>
+
+  <record id="import_source_csv_product_product" model="import.source.csv">
+    <field name="name">product_product_canal</field>
+    <field name="chunk_size" eval="300" />
+    <field
+            name="csv_path"
+        >http://www.canalocio.es/export_info.php?key=onan&amp;val=834jds2k,23WZjd92Pas2S%242&amp;datefrom=2024-08-01&amp;outfile=1</field>
+    <field name="csv_delimiter">;</field>
+    <field name="csv_encoding">utf-8</field>
+  </record>
+
+  </odoo>
