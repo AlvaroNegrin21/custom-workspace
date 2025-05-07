@@ -30,7 +30,7 @@ class HTTPCSVReader(CSVReader):
         _logger.info("HTTPCSVReader: Initial kwargs encoding: %s", specified_encoding)
 
         downloaded_content = None
-        final_kwargs = kwargs.copy() # Use a copy to pass to super
+        final_kwargs = kwargs.copy()
 
         if filepath and is_valid_url(filepath):
             _logger.info("HTTPCSVReader: Fetching CSV from URL: %s", filepath)
@@ -49,39 +49,26 @@ class HTTPCSVReader(CSVReader):
                     for chunk in response.iter_content(chunk_size=chunk_size):
                         downloaded_content += chunk
 
-                    if not downloaded_content: # More explicit check
+                    if not downloaded_content:
                         _logger.error("HTTPCSVReader: Downloaded content is empty from %s", filepath)
                         raise UserError(_("The HTTP response from %s is empty.") % filepath)
 
-                    # LOGGING ADDED HERE
                     _logger.info("HTTPCSVReader: Downloaded %s bytes.", len(downloaded_content))
-                    # Try guessing metadata *including* encoding for debugging
                     try:
                         meta = guess_csv_metadata(downloaded_content)
                         _logger.info("HTTPCSVReader: Guessed metadata: %s", meta)
-                        # The base CSVReader expects 'delimiter' and 'quotechar' in kwargs.
-                        # It handles encoding based on the 'encoding' kwarg given to __init__
-                        # and the 'filedata' bytes.
                         final_kwargs.update({k: v for k, v in meta.items() if k in ("delimiter", "quotechar")})
 
-                        # Crucially, we must ensure the decoding in the base CSVReader uses the *correct* encoding.
-                        # The base CSVReader will decode the 'filedata' bytes using the 'encoding' kwarg it receives.
-                        # If guess_csv_metadata's encoding is reliable, maybe pass that?
-                        # Or, ensure the initial 'encoding' kwarg from XML is correct.
-                        # Let's log what encoding is *actually* passed to super.
                         _logger.info("HTTPCSVReader: Encoding passed to super: %s", final_kwargs.get('encoding', 'Default/None'))
 
 
                     except Exception as meta_err:
                         _logger.error("HTTPCSVReader: Error guessing metadata: %s", meta_err)
-                        # Decide if you want to fail or continue with default/specified delimiter/quotechar
-                        # If you continue, ensure final_kwargs retains the initial delimiter/quotechar if specified.
-                        # For now, let's re-raise to understand the issue.
                         raise meta_err
 
 
                     final_kwargs["filedata"] = downloaded_content
-                    filepath = None # Set filepath to None so super uses filedata
+                    filepath = None
 
             except requests.Timeout:
                 _logger.error("HTTPCSVReader: Timeout while fetching CSV from %s", filepath)
@@ -96,6 +83,4 @@ class HTTPCSVReader(CSVReader):
                 if response:
                     response.close()
 
-        # LOGGING ADDED HERE
-        _logger.info("HTTPCSVReader: Calling super with filepath=%s and kwargs=%s", filepath, final_kwargs)
         super().__init__(filepath=filepath, **final_kwargs)
