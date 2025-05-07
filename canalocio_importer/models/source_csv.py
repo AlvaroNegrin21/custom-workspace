@@ -52,6 +52,26 @@ class CSVSource(models.Model):
             "source_id_ids"
         ]
 
+    # def _generate_csv_reader(self, reader_args):
+    #     """
+    #     Generates the custom CSV reader.
+    #     The HTTPCSVReader uses the `filepath` argument, which is self.csv_path here.
+    #     """
+    #     if not self.csv_path or not is_valid_url(self.csv_path):
+    #         raise UserError(_("CSV Path must be a valid HTTP/HTTPS URL for this source type."))
+
+    #     res = super()._generate_csv_reader(reader_args)
+
+    #     if self.csv_path and is_valid_url(self.csv_path) and hasattr(res, 'delimiter'):
+    #         self.write({
+    #             'csv_delimiter': res.delimiter,
+    #             'csv_quotechar': res.quotechar,
+    #         })
+    #         self.invalidate_cache(['csv_delimiter', 'csv_quotechar'])
+    #         self.refresh()
+
+    #     return res
+
     def _generate_csv_reader(self, reader_args):
         """
         Generates the custom CSV reader.
@@ -61,15 +81,11 @@ class CSVSource(models.Model):
             raise UserError(_("CSV Path must be a valid HTTP/HTTPS URL for this source type."))
 
         res = super()._generate_csv_reader(reader_args)
-
         if self.csv_path and is_valid_url(self.csv_path) and hasattr(res, 'delimiter'):
             self.write({
                 'csv_delimiter': res.delimiter,
                 'csv_quotechar': res.quotechar,
             })
-            self.invalidate_cache(['csv_delimiter', 'csv_quotechar'])
-            self.refresh()
-
         return res
 
     def _fetch_image_b64(self, url):

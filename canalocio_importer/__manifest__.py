@@ -23,6 +23,7 @@
     "data": [
         "security/ir.model.access.csv",
         "views/import_source_canal_view.xml",
+        "data/import_source_data.xml",
         "data/import_backend_data.xml",
         "data/import_type_data.xml",
         "data/import_recordset_data.xml",
